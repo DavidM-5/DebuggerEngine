@@ -1,0 +1,53 @@
+# === Build artifacts ===
+# Out-of-source build dir (if you use one)
+build/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+Makefile
+
+# In-source build artefacts (if you ever build in the tree)
+*.obj
+*.o
+*.so
+*.a
+*.dylib
+*.lib
+*.dll
+*.exe
+*.out
+
+# Coverage data
+*.gcda
+*.gcno
+coverage/
+
+# Core dumps & logs
+core
+*.log
+
+# === IDE / editor ===
+# VS Code
+.vscode/
+
+# CLion, IntelliJ, Qt Creator, Visual Studio, Xcode
+.idea/
+*.iml
+*.pro.user*
+*.vcxproj*
+*.sln
+*.xcworkspace/
+*.xcuserdata/
+
+# Vim / Emacs / OS temp files
+*~
+*.swp
+.DS_Store
+Thumbs.db
+
+# === Test/extras builds ===
+tests/build/
+examples/**/build/
