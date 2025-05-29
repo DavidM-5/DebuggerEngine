@@ -9,8 +9,6 @@ DebuggerEngine/
 │   ├── DebuggerEngine.cpp
 │   ├── TargetManager.h
 │   ├── TargetManager.cpp
-│   ├── ConfigManager.h
-│   ├── ConfigManager.cpp
 │   ├── IOManager.h
 │   ├── IOManager.cpp
 │   ├── PtraceController.h
