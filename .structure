@@ -1,0 +1,33 @@
+DebuggerEngine/
+├── CMakeLists.txt
+├── README.md
+├── LICENSE
+├── include/
+│   └── DebuggerEngine/
+│       ├── DebuggerEngine.h
+├── src/
+│   ├── DebuggerEngine.cpp
+│   ├── TargetManager.h
+│   ├── TargetManager.cpp
+│   ├── ConfigManager.h
+│   ├── ConfigManager.cpp
+│   ├── IOManager.h
+│   ├── IOManager.cpp
+│   ├── PtraceController.h
+│   ├── PtraceController.cpp
+│   └── internal/
+│       ├── DebuggerEngine_impl.h
+├── tests/
+│   ├── CMakeLists.txt
+│   ├── DebuggerEngineTests.cpp
+│   └── TargetManagerTests.cpp
+├── examples/
+│   ├── cli_demo/
+│   │   ├── main.cpp
+│   │   └── CMakeLists.txt
+│   └── simple_target/
+│       ├── vulnerable_app.c
+│       └── run_example.sh
+└── docs/
+    ├── architecture.md
+    └── usage.md
