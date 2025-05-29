@@ -2,6 +2,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(DebuggerEngine VERSION 1.0 LANGUAGES CXX)
 
+# Enable generation of compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # —————————————————————————————————————————————
