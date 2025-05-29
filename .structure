@@ -29,3 +29,41 @@ DebuggerEngine/
 └── docs/
     ├── architecture.md
     └── usage.md
+
+
+PtraceController
+    attach(pid_t)
+
+    detach()
+
+    getRegisters()
+
+    setRegisters()
+
+    singleStep()
+
+    continueExecution()
+
+    peekData(addr)
+
+    pokeData(addr, value)
+
+MemoryReader
+    readMemoryBlock(address, size)
+
+    getStackRegion() ← uses /proc/<pid>/maps
+
+    dumpRegionToFile(start, end, filename)
+
+    readCString(address) (optional helper)
+
+    DebuggerEngine
+    .launchTarget(path, argv[])
+
+    .pauseTarget(), .resumeTarget()
+
+    .getStack() ← uses both
+
+    .injectPayload(buffer, address)
+
+    .stepAndVisualize()
