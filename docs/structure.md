@@ -1,3 +1,5 @@
+# Project Structure
+
 DebuggerEngine/
 ├── CMakeLists.txt
 ├── README.md
