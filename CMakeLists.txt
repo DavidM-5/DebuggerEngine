@@ -2,6 +2,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(DebuggerEngine VERSION 1.0 LANGUAGES CXX)
 
+find_package(Threads REQUIRED)
+
 # Enable generation of compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -16,7 +18,13 @@ add_library(DebuggerEngine SHARED
     #src/TargetManager.cpp
     #src/ConfigManager.cpp
     #src/Injector.cpp
-    #src/PtraceController.cpp
+    src/PtraceController.cpp
+)
+
+# Add Threads::Threads to your library's dependencies
+target_link_libraries(DebuggerEngine
+    PUBLIC
+        Threads::Threads
 )
 
 target_compile_features(DebuggerEngine PUBLIC cxx_std_17)
