@@ -53,12 +53,56 @@ namespace DebuggerEngine
         }
     }
 
+    bool PtraceController::attachToProcess(pid_t pid)
+    {
+        if (pid <= 0) {
+            std::cerr << "PtraceController: Invalid PID " << pid << "\n";
+            return false;
+        }
+        
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_pid != -1) {
+                std::cerr << "Error: A process is already being traced." << std::endl;
+                return false;
+            }
+        }
+        
+        m_pid = pid;
+        
+        // Wait for the child to stop on its initial SIGTRAP from execvp
+        // This matches the behavior of the original launch() method
+        int status;
+        if (waitpid(m_pid, &status, 0) < 0) {
+            perror("waitpid in attachToProcess");
+            kill(m_pid, SIGKILL);
+            waitpid(m_pid, nullptr, 0);
+            m_pid = -1;
+            return false;
+        }
+
+        if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
+            // Successfully stopped, set up the tracer thread and initial state
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_is_tracer_thread_active = true;
+            m_tracee_state = TraceeState::Stopped;
+            m_tracer_thread = std::thread(&PtraceController::tracerLoop, this);
+            return true;
+        } else {
+            // Something went wrong, kill the child and clean up
+            std::cerr << "Error: Failed to stop child process after attach. Status: " << status << std::endl;
+            kill(m_pid, SIGKILL);
+            waitpid(m_pid, nullptr, 0);
+            m_pid = -1;
+            return false;
+        }
+    }
+
     bool PtraceController::launch(const std::string &path, const std::vector<std::string> &args)
     {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_pid != -1)
-            {
+            if (m_pid != -1) {
                 std::cerr << "Error: A process is already being traced." << std::endl;
                 return false;
             }
@@ -66,25 +110,17 @@ namespace DebuggerEngine
 
         m_pid = fork();
 
-        if (m_pid == -1)
-        {
+        if (m_pid == -1) {
             perror("fork");
             return false;
         }
 
-        if (m_pid == 0) // Child process
-        {
-            // Allow the parent process to trace this child
-            if (ptrace(PTRACE_TRACEME, 0, nullptr, nullptr) < 0)
-            {
-                perror("ptrace(TRACEME)");
-                exit(1);
-            }
+        if (m_pid == 0) { // Child process
+            setupChildPtrace();  // Use the same hook implementation
 
             // Convert std::vector<std::string> to char* const* for execvp
             std::vector<char*> argv;
-            for (const auto& arg : args)
-            {
+            for (const auto& arg : args) {
                 argv.push_back(const_cast<char*>(arg.c_str()));
             }
             argv.push_back(nullptr);
@@ -95,9 +131,7 @@ namespace DebuggerEngine
             // execvp only returns on error
             perror("execvp");
             exit(1);
-        }
-        else // Parent process
-        {
+        } else { // Parent process
             // Wait for the child to stop on its initial SIGTRAP from execvp
             int status;
             if (waitpid(m_pid, &status, 0) < 0) {
@@ -108,17 +142,14 @@ namespace DebuggerEngine
                 return false;
             }
 
-            if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
-            {
+            if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
                 // Successfully stopped, set up the tracer thread and initial state
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_is_tracer_thread_active = true;
                 m_tracee_state = TraceeState::Stopped;
                 m_tracer_thread = std::thread(&PtraceController::tracerLoop, this);
                 return true;
-            }
-            else
-            {
+            } else {
                 // Something went wrong, kill the child and clean up
                 std::cerr << "Error: Failed to stop child process after launch. Status: " << status << std::endl;
                 kill(m_pid, SIGKILL);
@@ -337,6 +368,13 @@ namespace DebuggerEngine
         return m_tracee_state;
     }
 
+    ProcessHooks PtraceController::getProcessHooks()
+    {
+        ProcessHooks hooks;
+        hooks.child_setup = [this]() { setupChildPtrace(); };
+        hooks.parent_setup = [this](pid_t child_pid) { setupParentPtrace(child_pid); };
+        return hooks;
+    }
 
     // --- Private Helpers ---
 
@@ -401,6 +439,38 @@ namespace DebuggerEngine
         m_is_tracer_thread_active = false;
         // The tracer thread will exit when it next checks this flag
         // or when the process exits
+    } 
+
+
+    // --- Hook Implementation Helpers ---
+
+    void PtraceController::setupChildPtrace()
+    {
+        // Called in child process before execv()
+        // Enable tracing for this process
+        if (ptrace(PTRACE_TRACEME, 0, nullptr, nullptr) < 0) {
+            perror("ptrace(TRACEME)");
+            exit(1);
+        }
+        
+        // Note: No raise(SIGSTOP) needed - execvp will automatically cause SIGTRAP
+        // which is what the original launch() method expects
+    }
+
+    void PtraceController::setupParentPtrace(pid_t child_pid)
+    {
+        // Called in parent process after fork()
+        // In the hook-based system, the actual waiting and tracer thread setup
+        // happens in attachToProcess(), so this hook is mainly a placeholder
+        // for consistency with the hook pattern
+        
+        // We could do some validation here if needed
+        if (child_pid <= 0) {
+            std::cerr << "PtraceController: Invalid child PID in parent setup\n";
+        }
+        
+        // Note: The actual parent setup (waitpid, tracer thread) happens in attachToProcess()
+        // This separation allows for proper error handling and state management
     }
 
 } // namespace DebuggerEngine

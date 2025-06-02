@@ -13,6 +13,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,15 @@ namespace DebuggerEngine
         Exited,     // The child process has exited.
         Error       // An unrecoverable error occurred.
     };
+
+    // Forward declarations for hook system
+    using ChildSetupHook = std::function<void()>;
+    using ParentSetupHook = std::function<void(pid_t child_pid)>;
+
+    struct ProcessHooks {
+        ChildSetupHook child_setup;   // Called in child before exec
+        ParentSetupHook parent_setup; // Called in parent after fork
+    };
         
     class PtraceController
     {
@@ -39,14 +49,22 @@ namespace DebuggerEngine
         // This class manages a child process and a thread, so it should not be copyable.
         PtraceController(const PtraceController&) = delete;
         PtraceController& operator=(const PtraceController&) = delete;
+        
+        // Attaches to an existing process that was created with the hooks.
+        // This replaces the old launch() method and should be called after
+        // the process has been created and the hooks have been executed.
+        // @param pid The PID of the process to attach to
+        // @return true on successful attachment
+        bool attachToProcess(pid_t pid);
 
+        // This is the original monolithic method. Use getProcessHooks() + attachToProcess() instead. 
         // Launches the target executable as a child process and begins tracing it.
-        // This is the primary way to start a debugging session. The function blocks
-        // until the child process is loaded and has reached its initial stop point
+        // The function blocks until the child process is loaded and has reached its initial stop point
         // (immediately after the execv call), at which point it's ready for commands.
         // @param path Full path to the executable.
         // @param args Command-line arguments for the executable.
         // @return true on successful launch and initial stop, false otherwise.
+        [[deprecated("Use getProcessHooks() + attachToProcess() instead")]]
         bool launch(const std::string& path, const std::vector<std::string>& args);
 
         // Terminates the traced child process.
@@ -111,6 +129,10 @@ namespace DebuggerEngine
 
         // Returns the current state of the traced process.
         TraceeState getTraceeState() const;
+
+        // Returns hooks for the process creation system
+        // These hooks handle ptrace setup during process creation
+        ProcessHooks getProcessHooks();
     
     private:
         pid_t m_pid;
@@ -140,6 +162,15 @@ namespace DebuggerEngine
         // Helper for executing ptrace operations that require the tracee to be stopped.
         template<typename Func>
         bool executeIfStopped(Func ptrace_op, const char* op_name) const;
+
+
+        // --- Hook Implementation Helpers ---
+        
+        // Called in child process to set up ptrace tracing
+        void setupChildPtrace();
+        
+        // Called in parent process after fork to initialize ptrace state
+        void setupParentPtrace(pid_t child_pid);
     };
 
 } // namespace DebuggerEngine
