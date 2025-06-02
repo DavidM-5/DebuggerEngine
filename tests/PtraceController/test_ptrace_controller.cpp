@@ -154,7 +154,7 @@ void testBasicLifecycleAttach(TestRunner& runner, ProcessManager& pm) {
     pid_t target_pid = pm.startTargetProcess();
     runner.assert_true(target_pid > 0, "Should start target process successfully");
     
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     runner.assert_true(debugger.getPid() == target_pid, "PID should match target PID after attach");
     runner.assert_true(debugger.getTraceeState() == DebuggerEngine::TraceeState::Stopped, 
@@ -178,7 +178,7 @@ void testExecutionControlAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution
@@ -220,7 +220,7 @@ void testRegisterOperationsAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Get registers
@@ -251,7 +251,7 @@ void testMemoryOperationsAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Get the instruction pointer to read some code
@@ -308,17 +308,17 @@ void testErrorConditionsAttach(TestRunner& runner, ProcessManager& pm) {
                        "Should fail to interrupt before attach");
     
     // Test attach to invalid PID
-    bool invalid_attach = debugger.attachToProcess(-1);
+    bool invalid_attach = debugger.attachToTracedChild(-1);
     runner.assert_false(invalid_attach, "Should fail to attach to invalid PID");
     
     // Start and attach to process
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Test double attach
     pid_t target_pid2 = pm.startTargetProcess();
-    bool double_attach = debugger.attachToProcess(target_pid2);
+    bool double_attach = debugger.attachToTracedChild(target_pid2);
     runner.assert_false(double_attach, "Should fail to attach twice");
     pm.killProcess(target_pid2);  // Clean up the second process
     
@@ -350,7 +350,7 @@ void testDetachAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     runner.assert_true(debugger.getPid() == target_pid, "Should have correct PID");
@@ -377,7 +377,7 @@ void testNormalExitAttach(TestRunner& runner, ProcessManager& pm) {
     
     // Start with "exit" argument to make target exit normally
     pid_t target_pid = pm.startTargetProcess({"exit"});
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     bool continued = debugger.continueExecution();
@@ -399,10 +399,10 @@ void testMultipleInstancesAttach(TestRunner& runner, ProcessManager& pm) {
     pid_t target_pid1 = pm.startTargetProcess();
     pid_t target_pid2 = pm.startTargetProcess();
     
-    bool attached1 = debugger1.attachToProcess(target_pid1);
+    bool attached1 = debugger1.attachToTracedChild(target_pid1);
     runner.assert_true(attached1, "First debugger should attach successfully");
     
-    bool attached2 = debugger2.attachToProcess(target_pid2);
+    bool attached2 = debugger2.attachToTracedChild(target_pid2);
     runner.assert_true(attached2, "Second debugger should attach successfully");
     
     runner.assert_true(debugger1.getPid() != debugger2.getPid(), 
@@ -434,7 +434,7 @@ void testMemoryOperationsWithKnownValuesAttach(TestRunner& runner, ProcessManage
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution briefly to let the target initialize its global variables
@@ -495,7 +495,7 @@ void testGlobalVariableAccessAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution to let target print its addresses
@@ -547,7 +547,7 @@ void testMemoryBoundariesAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     // Test different data sizes
@@ -609,7 +609,7 @@ void testInstructionPatternsAttach(TestRunner& runner, ProcessManager& pm) {
     DebuggerEngine::PtraceController debugger;
     
     pid_t target_pid = pm.startTargetProcess();
-    bool attached = debugger.attachToProcess(target_pid);
+    bool attached = debugger.attachToTracedChild(target_pid);
     runner.assert_true(attached, "Should attach successfully");
     
     DebuggerEngine::Registers regs;

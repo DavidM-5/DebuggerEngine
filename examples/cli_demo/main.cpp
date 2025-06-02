@@ -71,7 +71,7 @@ int main(int argc, char const *argv[]) {
 
 
     std::cout << "Attaching." << std::endl;
-    if (!debugger.attachToProcess(child_pid)) {
+    if (!debugger.attachToTracedChild(child_pid)) {
         std::cerr << "Failed to launch target process" << std::endl;
         return 1;  // Destructor will run and clean up
     }

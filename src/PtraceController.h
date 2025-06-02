@@ -50,12 +50,11 @@ namespace DebuggerEngine
         PtraceController(const PtraceController&) = delete;
         PtraceController& operator=(const PtraceController&) = delete;
         
-        // Attaches to an existing process that was created with the hooks.
-        // This replaces the old launch() method and should be called after
-        // the process has been created and the hooks have been executed.
+        // Attach to a child process that has already called PTRACE_TRACEME
+        // (typically via setupChildPtrace hook).
         // @param pid The PID of the process to attach to
         // @return true on successful attachment
-        bool attachToProcess(pid_t pid);
+        bool attachToTracedChild(pid_t pid);
 
         // This is the original monolithic method. Use getProcessHooks() + attachToProcess() instead. 
         // Launches the target executable as a child process and begins tracing it.

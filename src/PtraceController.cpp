@@ -53,7 +53,7 @@ namespace DebuggerEngine
         }
     }
 
-    bool PtraceController::attachToProcess(pid_t pid)
+    bool PtraceController::attachToTracedChild(pid_t pid)
     {
         if (pid <= 0) {
             std::cerr << "PtraceController: Invalid PID " << pid << "\n";
