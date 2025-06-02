@@ -10,6 +10,8 @@
 #include <functional>
 #include <map>
 #include <sstream>
+#include <unistd.h>
+#include <sys/types.h>
 #include "../../src/PtraceController.h"
 
 // Test configuration
@@ -62,6 +64,67 @@ public:
     bool allPassed() const { return failed == 0; }
 };
 
+// Helper class to manage target processes for attach testing
+class ProcessManager {
+private:
+    std::vector<pid_t> managed_pids;
+
+public:
+    ~ProcessManager() {
+        cleanup();
+    }
+
+    pid_t startTargetProcess(const std::vector<std::string>& args = {}) {
+        pid_t pid = fork();
+        
+        if (pid == -1) {
+            perror("fork in ProcessManager");
+            return -1;
+        }
+        
+        if (pid == 0) {
+            // Child process - set up for tracing and exec the target
+            if (ptrace(PTRACE_TRACEME, 0, nullptr, nullptr) < 0) {
+                perror("ptrace(TRACEME)");
+                exit(1);
+            }
+            
+            // Convert args to execvp format
+            std::vector<std::string> full_args = {TEST_TARGET_PATH};
+            full_args.insert(full_args.end(), args.begin(), args.end());
+            
+            std::vector<char*> argv;
+            for (const auto& arg : full_args) {
+                argv.push_back(const_cast<char*>(arg.c_str()));
+            }
+            argv.push_back(nullptr);
+            
+            // Execute the target
+            execvp(TEST_TARGET_PATH, argv.data());
+            perror("execvp in ProcessManager");
+            exit(1);
+        }
+        
+        // Parent process - track the PID
+        managed_pids.push_back(pid);
+        return pid;
+    }
+    
+    void killProcess(pid_t pid) {
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        managed_pids.erase(std::remove(managed_pids.begin(), managed_pids.end(), pid), managed_pids.end());
+    }
+    
+    void cleanup() {
+        for (pid_t pid : managed_pids) {
+            kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
+        }
+        managed_pids.clear();
+    }
+};
+
 // Helper function to wait with timeout
 bool waitWithTimeout(std::function<bool()> condition, int timeout_ms = TEST_TIMEOUT_MS) {
     auto start = std::chrono::steady_clock::now();
@@ -76,9 +139,9 @@ bool waitWithTimeout(std::function<bool()> condition, int timeout_ms = TEST_TIME
     return true;
 }
 
-// Test basic lifecycle
-void testBasicLifecycle(TestRunner& runner) {
-    runner.startTest("Basic Lifecycle");
+// Test basic lifecycle with attach
+void testBasicLifecycleAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Basic Lifecycle with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
@@ -87,12 +150,15 @@ void testBasicLifecycle(TestRunner& runner) {
     runner.assert_true(debugger.getTraceeState() == DebuggerEngine::TraceeState::NotStarted, 
                       "Initial state should be NotStarted");
     
-    // Launch
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
-    runner.assert_true(debugger.getPid() > 0, "PID should be valid after launch");
+    // Start target process and attach
+    pid_t target_pid = pm.startTargetProcess();
+    runner.assert_true(target_pid > 0, "Should start target process successfully");
+    
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
+    runner.assert_true(debugger.getPid() == target_pid, "PID should match target PID after attach");
     runner.assert_true(debugger.getTraceeState() == DebuggerEngine::TraceeState::Stopped, 
-                      "State should be Stopped after launch");
+                      "State should be Stopped after attach");
     
     // Terminate
     bool terminated = debugger.terminate();
@@ -105,14 +171,15 @@ void testBasicLifecycle(TestRunner& runner) {
     runner.assert_true(exited, "Should reach Exited state after terminate");
 }
 
-// Test execution control
-void testExecutionControl(TestRunner& runner) {
-    runner.startTest("Execution Control");
+// Test execution control with attach
+void testExecutionControlAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Execution Control with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution
     bool continued = debugger.continueExecution();
@@ -146,14 +213,15 @@ void testExecutionControl(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test register operations
-void testRegisterOperations(TestRunner& runner) {
-    runner.startTest("Register Operations");
+// Test register operations with attach
+void testRegisterOperationsAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Register Operations with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Get registers
     DebuggerEngine::Registers regs1, regs2;
@@ -176,14 +244,15 @@ void testRegisterOperations(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test memory operations
-void testMemoryOperations(TestRunner& runner) {
-    runner.startTest("Memory Operations");
+// Test memory operations with attach
+void testMemoryOperationsAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Memory Operations with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Get the instruction pointer to read some code
     DebuggerEngine::Registers regs;
@@ -223,28 +292,35 @@ void testMemoryOperations(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test error conditions
-void testErrorConditions(TestRunner& runner) {
-    runner.startTest("Error Conditions");
+// Test error conditions with attach
+void testErrorConditionsAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Error Conditions with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    // Test operations on non-launched process
+    // Test operations on non-attached process
     DebuggerEngine::Registers regs;
     runner.assert_false(debugger.getRegisters(regs), 
-                       "Should fail to get registers before launch");
+                       "Should fail to get registers before attach");
     runner.assert_false(debugger.continueExecution(), 
-                       "Should fail to continue before launch");
+                       "Should fail to continue before attach");
     runner.assert_false(debugger.interrupt(), 
-                       "Should fail to interrupt before launch");
+                       "Should fail to interrupt before attach");
     
-    // Launch process
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    // Test attach to invalid PID
+    bool invalid_attach = debugger.attachToProcess(-1);
+    runner.assert_false(invalid_attach, "Should fail to attach to invalid PID");
     
-    // Test double launch
-    bool double_launch = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_false(double_launch, "Should fail to launch twice");
+    // Start and attach to process
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
+    
+    // Test double attach
+    pid_t target_pid2 = pm.startTargetProcess();
+    bool double_attach = debugger.attachToProcess(target_pid2);
+    runner.assert_false(double_attach, "Should fail to attach twice");
+    pm.killProcess(target_pid2);  // Clean up the second process
     
     // Start the process running
     debugger.continueExecution();
@@ -267,17 +343,17 @@ void testErrorConditions(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test detach functionality
-void testDetach(TestRunner& runner) {
-    runner.startTest("Detach Functionality");
+// Test detach functionality with attach
+void testDetachAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Detach Functionality with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
-    pid_t target_pid = debugger.getPid();
-    runner.assert_true(target_pid > 0, "Should have valid PID");
+    runner.assert_true(debugger.getPid() == target_pid, "Should have correct PID");
     
     bool detached = debugger.detach();
     runner.assert_true(detached, "Should detach successfully");
@@ -290,19 +366,19 @@ void testDetach(TestRunner& runner) {
     runner.assert_true(result == 0, "Target process should still be running after detach");
     
     // Clean up the detached process
-    kill(target_pid, SIGKILL);
-    waitpid(target_pid, nullptr, 0);
+    pm.killProcess(target_pid);
 }
 
-// Test process that exits normally
-void testNormalExit(TestRunner& runner) {
-    runner.startTest("Normal Process Exit");
+// Test process that exits normally with attach
+void testNormalExitAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Normal Process Exit with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    // Launch with "exit" argument to make target exit normally
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH, "exit"});
-    runner.assert_true(launched, "Should launch successfully");
+    // Start with "exit" argument to make target exit normally
+    pid_t target_pid = pm.startTargetProcess({"exit"});
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     bool continued = debugger.continueExecution();
     runner.assert_true(continued, "Should continue successfully");
@@ -314,17 +390,20 @@ void testNormalExit(TestRunner& runner) {
     runner.assert_true(exited, "Process should exit naturally");
 }
 
-// Test multiple instances
-void testMultipleInstances(TestRunner& runner) {
-    runner.startTest("Multiple Debugger Instances");
+// Test multiple instances with attach
+void testMultipleInstancesAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Multiple Debugger Instances with Attach");
     
     DebuggerEngine::PtraceController debugger1, debugger2;
     
-    bool launched1 = debugger1.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched1, "First debugger should launch successfully");
+    pid_t target_pid1 = pm.startTargetProcess();
+    pid_t target_pid2 = pm.startTargetProcess();
     
-    bool launched2 = debugger2.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched2, "Second debugger should launch successfully");
+    bool attached1 = debugger1.attachToProcess(target_pid1);
+    runner.assert_true(attached1, "First debugger should attach successfully");
+    
+    bool attached2 = debugger2.attachToProcess(target_pid2);
+    runner.assert_true(attached2, "Second debugger should attach successfully");
     
     runner.assert_true(debugger1.getPid() != debugger2.getPid(), 
                       "Different debuggers should have different PIDs");
@@ -348,14 +427,15 @@ void testMultipleInstances(TestRunner& runner) {
     debugger2.terminate();
 }
 
-// Test memory operations with known values
-void testMemoryOperationsWithKnownValues(TestRunner& runner) {
-    runner.startTest("Memory Operations with Known Values");
+// Test memory operations with known values using attach
+void testMemoryOperationsWithKnownValuesAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Memory Operations with Known Values using Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution briefly to let the target initialize its global variables
     debugger.continueExecution();
@@ -363,11 +443,7 @@ void testMemoryOperationsWithKnownValues(TestRunner& runner) {
     debugger.interrupt();
     debugger.waitForStop();
     
-    // Method 1: Read the global_counter variable
-    // We need to get its address from the target's output or use a known offset
-    // For this test, we'll read memory around the data segment and look for patterns
-    
-    // Method 2: Test with instruction memory (more reliable)
+    // Test with instruction memory (more reliable)
     DebuggerEngine::Registers regs;
     bool got_regs = debugger.getRegisters(regs);
     runner.assert_true(got_regs, "Should get registers");
@@ -391,7 +467,7 @@ void testMemoryOperationsWithKnownValues(TestRunner& runner) {
     runner.assert_true(peek1 == buffer_as_long[0], "First 8 bytes should match between peek and read");
     runner.assert_true(peek2 == buffer_as_long[1], "Second 8 bytes should match between peek and read");
     
-    // Method 3: Test with stack memory (also reliable)
+    // Test with stack memory (also reliable)
     uint64_t rsp = regs.rsp;  // Stack pointer
     
     // Write a known pattern to stack and read it back
@@ -412,14 +488,15 @@ void testMemoryOperationsWithKnownValues(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test reading target's global variables (requires parsing target output)
-void testGlobalVariableAccess(TestRunner& runner) {
-    runner.startTest("Global Variable Access");
+// Test global variable access using attach
+void testGlobalVariableAccessAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Global Variable Access with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Continue execution to let target print its addresses
     debugger.continueExecution();
@@ -463,14 +540,15 @@ void testGlobalVariableAccess(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test memory boundaries and edge cases
-void testMemoryBoundaries(TestRunner& runner) {
-    runner.startTest("Memory Boundaries and Edge Cases");
+// Test memory boundaries and edge cases using attach
+void testMemoryBoundariesAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Memory Boundaries and Edge Cases with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     // Test different data sizes
     DebuggerEngine::Registers regs;
@@ -524,14 +602,15 @@ void testMemoryBoundaries(TestRunner& runner) {
     debugger.terminate();
 }
 
-// Test with known instruction patterns
-void testInstructionPatterns(TestRunner& runner) {
-    runner.startTest("Instruction Pattern Verification");
+// Test with known instruction patterns using attach
+void testInstructionPatternsAttach(TestRunner& runner, ProcessManager& pm) {
+    runner.startTest("Instruction Pattern Verification with Attach");
     
     DebuggerEngine::PtraceController debugger;
     
-    bool launched = debugger.launch(TEST_TARGET_PATH, {TEST_TARGET_PATH});
-    runner.assert_true(launched, "Should launch successfully");
+    pid_t target_pid = pm.startTargetProcess();
+    bool attached = debugger.attachToProcess(target_pid);
+    runner.assert_true(attached, "Should attach successfully");
     
     DebuggerEngine::Registers regs;
     debugger.getRegisters(regs);
@@ -709,6 +788,7 @@ std::map<std::string, uint64_t> parseTargetAddresses(const std::string& output) 
 
 int main() {
     TestRunner runner;
+    ProcessManager pm;
     
     std::cout << "PtraceController Test Suite" << std::endl;
     std::cout << "Target executable: " << TEST_TARGET_PATH << std::endl;
@@ -721,18 +801,18 @@ int main() {
     }
     
     try {
-        testBasicLifecycle(runner);
-        testExecutionControl(runner);
-        testRegisterOperations(runner);
-        testMemoryOperations(runner);
-        testErrorConditions(runner);
-        testDetach(runner);
-        testNormalExit(runner);
-        testMultipleInstances(runner);
-        testMemoryOperationsWithKnownValues(runner);
-        testGlobalVariableAccess(runner);
-        testMemoryBoundaries(runner);
-        testInstructionPatterns(runner);
+        testBasicLifecycleAttach(runner, pm);
+        testExecutionControlAttach(runner, pm);
+        testRegisterOperationsAttach(runner, pm);
+        testMemoryOperationsAttach(runner, pm);
+        testErrorConditionsAttach(runner, pm);
+        testDetachAttach(runner, pm);
+        testNormalExitAttach(runner, pm);
+        testMultipleInstancesAttach(runner, pm);
+        testMemoryOperationsWithKnownValuesAttach(runner, pm);
+        testGlobalVariableAccessAttach(runner, pm);
+        testMemoryBoundariesAttach(runner, pm);
+        testInstructionPatternsAttach(runner, pm);
     } catch (const std::exception& e) {
         std::cerr << "Test exception: " << e.what() << std::endl;
         return 1;
