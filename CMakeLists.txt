@@ -17,7 +17,7 @@ add_library(DebuggerEngine SHARED
     src/version.cpp
     #src/TargetManager.cpp
     #src/ConfigManager.cpp
-    #src/Injector.cpp
+    src/IOManager.cpp
     src/PtraceController.cpp
 )
 
