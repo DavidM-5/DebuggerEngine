@@ -1,122 +1,63 @@
+#include "../../src/IOManager.h"
 #include <iostream>
-#include <chrono>
-#include <thread>
-#include "../../src/PtraceController.h"
+#include <string>
+#include <vector>
+#include <unistd.h>
 
-#define TARGET_PATH "./bin/test_target"
+using namespace DebuggerEngine;
 
-using ChildSetupHook = std::function<void()>;
-using ParentSetupHook = std::function<void(pid_t child_pid)>;
+int main(int argc, char const *argv[])
+{
+    IOManager ioManager;
 
+    // --- Process Setup and Launch ---
+    if (!ioManager.createPtyPair()) { return 1; }
+    auto io_hooks = ioManager.getProcessSetupHooks();
+    pid_t pid = fork();
+    if (pid < 0) { perror("fork failed"); return 1; }
 
-pid_t createChildProcess(const std::string& program, 
-                        const std::vector<std::string>& args, 
-                        const std::vector<DebuggerEngine::ProcessHooks>& all_hooks) {
-    
-    pid_t child_pid = fork();
-    
-    if (child_pid == -1) {
-        perror("fork");
-        return -1;
+    if (pid == 0) { // Child Process
+        io_hooks.child_setup();
+        execlp("bash", "bash", nullptr);
+        perror("execlp failed");
+        _exit(1);
     }
-    
-    if (child_pid == 0) {
-        // CHILD PROCESS
-        
-        // Execute all child setup hooks
-        for (const auto& hooks : all_hooks) {
-            if (hooks.child_setup) {
-                hooks.child_setup();
-            }
-        }
-        
-        // Convert std::vector<std::string> to char* const* for execvp
-        std::vector<char*> argv;
-        argv.push_back(const_cast<char*>(program.c_str()));  // argv[0] is program name
-        
-        for (const auto& arg : args) {
-            argv.push_back(const_cast<char*>(arg.c_str()));
-        }
-        argv.push_back(nullptr);  // execvp expects null-terminated array
-        
-        // Replace the child process image with the target program
-        execvp(program.c_str(), argv.data());
-        
-        // execvp only returns on error
-        perror("execvp");
-        exit(1);
-        
-    } else {
-        // PARENT PROCESS
-        
-        // Execute all parent setup hooks
-        for (const auto& hooks : all_hooks) {
-            if (hooks.parent_setup) {
-                hooks.parent_setup(child_pid);
-            }
-        }
-        
-        return child_pid;
-    }
-}
+    else { // Parent Process
+        io_hooks.parent_setup(pid);
+        std::cout << "Launched child process with PID: " << pid << std::endl;
+        std::cout << "--- Initializing Interactive Session ---" << std::endl;
 
+        // A unique string that we will set as the shell's prompt.
+        const std::string MY_PROMPT = "PROMPT_READY_XYZ>";
 
-int main(int argc, char const *argv[]) {
-    DebuggerEngine::PtraceController debugger;
+        // --- Synchronize with the shell by setting our prompt ---
+        // The new executeCommand method handles all the waiting internally.
+        ioManager.executeCommand("export PS1='" + MY_PROMPT + "'", MY_PROMPT);
 
-    std::vector<DebuggerEngine::ProcessHooks> all_hooks;
-    all_hooks.emplace_back(debugger.getProcessHooks());  // Direct usage
+        std::cout << "Session synchronized. Ready for commands." << std::endl;
+        
+        // --- The Conversation (now incredibly simple) ---
+        
+        std::cout << "\n[1. Asking for current user...]" << std::endl;
+        std::string whoami_output = ioManager.executeCommand("whoami", MY_PROMPT);
+        std::cout << "Shell Response:\n" << whoami_output << std::endl;
 
-    pid_t child_pid = createChildProcess(TARGET_PATH, {TARGET_PATH}, all_hooks);
-
-
-    std::cout << "Attaching." << std::endl;
-    if (!debugger.attachToTracedChild(child_pid)) {
-        std::cerr << "Failed to launch target process" << std::endl;
-        return 1;  // Destructor will run and clean up
+        std::cout << "[2. Asking for current directory...]" << std::endl;
+        std::string pwd_output = ioManager.executeCommand("pwd", MY_PROMPT);
+        std::cout << "Shell Response:\n" << pwd_output << std::endl;
+        
+        std::cout << "[3. Echoing a message...]" << std::endl;
+        std::string echo_output = ioManager.executeCommand("echo 'This is so much cleaner!'", MY_PROMPT);
+        std::cout << "Shell Response:\n" << echo_output << std::endl;
+        
+        // --- Shutdown Sequence ---
+        std::cout << "\n[4. Ending conversation...]" << std::endl;
+        ioManager.sendInput("exit\n");
+        ioManager.waitForStateChange();
+        ioManager.shutdown();
+        
+        std::cout << "--- Conversation Over ---" << std::endl;
     }
 
-
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-
-
-    std::cout << "Continuing." << std::endl;
-    if (!debugger.continueExecution()) {
-        std::cerr << "Failed to continue execution" << std::endl;
-        return 1;  // Destructor will run and clean up
-    }
-
-
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-
-    
-    std::cout << "Interrupting." << std::endl;
-    if (!debugger.interrupt()) {
-        std::cerr << "Failed to interrupt process" << std::endl;
-        return 1;  // Destructor will run and clean up
-    }
-
-
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-
-
-    std::cout << "Continuing." << std::endl;
-    if (!debugger.continueExecution()) {
-        std::cerr << "Failed to continue execution" << std::endl;
-        return 1;  // Destructor will run and clean up
-    }
-
-
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-
-
-    std::cout << "Terminating." << std::endl;
-    if (!debugger.terminate()) {
-        std::cerr << "Failed to terminate process cleanly" << std::endl;
-        return 1;  // Destructor will run and clean up
-    }
-
-
-    std::cout << "Done." << std::endl;
     return 0;
 }
