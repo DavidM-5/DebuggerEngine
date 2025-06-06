@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.10)
 project(DebuggerEngine VERSION 1.0 LANGUAGES CXX)
 
 find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBDW REQUIRED libdw)
 
 # Enable generation of compile_commands.json
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -19,20 +21,23 @@ add_library(DebuggerEngine SHARED
     #src/ConfigManager.cpp
     src/IOManager.cpp
     src/PtraceController.cpp
+    src/SymbolResolver.cpp
 )
 
 # Add Threads::Threads to your library's dependencies
 target_link_libraries(DebuggerEngine
     PUBLIC
         Threads::Threads
+        ${LIBDW_LIBRARIES}
 )
 
-target_compile_features(DebuggerEngine PUBLIC cxx_std_17)
+target_compile_features(DebuggerEngine PUBLIC cxx_std_20)
 
 target_include_directories(DebuggerEngine
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+        ${LIBDW_INCLUDE_DIRS}
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
